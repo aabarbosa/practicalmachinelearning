@@ -1,4 +1,3 @@
-# practicalmachinelearning
-Repo for coursera course Practical Machine Learning - Johns Hopkins University
+# Project for coursera course Practical Machine Learning - Johns Hopkins University
 
-To be done.
+Please see project-writeup.Rmd file for writeup
