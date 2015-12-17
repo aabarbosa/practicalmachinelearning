@@ -9,41 +9,45 @@ output: html_document
 
 This report investigates prediction models for Human Activity Recognition - HAR. 
 This is crucial for the development of context-aware systems.
-According to the problem statement, "There are many potential applications for HAR, like: elderly monitoring, life log systems for monitoring energy expenditure and for supporting weight-loss programs, and digital assistants for weight lifting exercises.
+According to the problem statement, "There are many potential applications for HAR, like: elderly monitoring, life log systems for monitoring energy expenditure and for supporting weight-loss programs, and digital assistants for weight lifting exercises."
 Data was provided by the Pontifícia Universidade Católica from  Rio de Janeiro (PUC-Rio);
-it consists of measurements from the wearable accelerometers, including values for roll, pitch, yaw, acceleration, gyroscope data, kurtosis, skewness taken from sensors located on weightlifters' arms, forearms and on the dumbbells.
+it consists of measurements from wearable accelerometers, including values for roll, pitch, yaw, acceleration, gyroscope data, kurtosis, skewness taken from sensors located on weightlifters' arms, forearms and on the dumbbells.
 The goal is to predict the manner in which they did the exercise
-(Sitting, Sitting down, Standing, Standing up, Walking)
+(Sitting, Sitting down, Standing, Standing up, Walking).
 
-Two models were produced and compared, a random forest model on the original predictors and and another random forest on the principal components obtained from PCA.
+Two models were produced and compared, a random forest model on the original predictors and another random forest on the principal components obtained from PCA.
 The best model has expected testing (out-of-sample) accuracy of 99,3%.
-Finally, 20 test cases were predicted and submitted for automatic evaluation.
+Finally, 20 test cases were predicted and submitted for automatic evaluation; all were correct.
 
 # Exploratory Analysis
-The training data are available here:https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
-The test (used for validation) data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
 
-We first look at the data by hand using a shell (more command) or text editor and we discover that NA can be represented by NA or "".
+The training data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data (used for validation) are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+We first look at the data by hand using a shell (`more` command) or a text editor and we discover that NA can be represented by NA or "".
 With this information, we can read the data in an R data frame.
 
 ```{r read, echo=FALSE, cache=TRUE, message=FALSE}
 library(caret)
 df = read.csv('pml-training.csv', sep=',', quote= '"', na.strings=c('NA'))
 df.validation = read.csv('pml-testing.csv', sep=',', quote= '"', na.strings=c('NA'))
-dim(df)
-dim(df.validation)
+number.of.training.samples = dim(df)[1]
+number.of.columns = dim(df)[2]
+number.of.validation.samples = dim(df.validation)[1]
 ```
 
-- It is clear that we have enough data (19622 rows) to split the training data in a training and a testing set.
+- There are `r number.of.training.samples` training samples with `r number.of.columns` columns and `r number.of.validation.samples` validation samples.
+- We have enough data to split the training data in a training and a testing set.
 This is not strictly necessary, since the whole training data could be used with cross-validation to estimate the testing (out-of-sample) accuracy.
-However, it is a recommended practice when much data is available, since it gives a more precise estimate of the testing accuracy.
+However, it is a recommended practice when enough data are available, since it gives a more precise estimate of the testing accuracy.
 
-Therefore, we will train on 70% of the data from pml-training.csv and 30% will be used to estimate the testing accuracy.
-Final validation will be done on the 20 cases in pml-testing.csv.
+Therefore, we will train on 70% of the data from `pml-training.csv` and 30% will be used to estimate the testing accuracy.
+Final validation will be done on the 20 cases in `pml-testing.csv`.
 
 ## Examine data format, data preparation
 
-It is crucial to make sure that the data is read in the correct format (factor, character, int, numeric) to allow model training to be done efficiently.
+It is crucial to make sure that the data are read in the correct format (factor, character, int, numeric) to allow model training to be done efficiently.
 
 ```{r eval=FALSE}
 str(df)
@@ -51,10 +55,10 @@ str(df)
 
 Looking at str(df) reveals that:
 
-- There are a lot of missing data: since they are concentrated in seeral columns, it is better to remove the columns, not the rows containing NA.
-- Some numerical columns are converted to factors because they contain a string "#DIV/0!"
+- There are a lot of missing data: since they are concentrated in several columns, it is better to remove the columns, not the rows containing NA.
+- When read in, some numerical columns are automatically converted to factors because they contain a string "#DIV/0!"
 These should all be converted to numeric, the reason being that several models 
-(ex. random forests) have complexity exponential in the number of factor levels and 
+(ex. random forests) have runtime complexity that is exponential in the number of factor levels and 
 these numeric factors were converted to factors with hundreds of levels!
 
     + Here is an example:
@@ -85,36 +89,37 @@ df.validation.clean = convert.factor.to.numeric(df.validation, '#DIV/0!')
 # now remove columns with NAs
 which.cols.need.to.go = sapply(df.clean, function(x) sum(is.na(x)) > 0)
 df.clean = df.clean[!which.cols.need.to.go]
-ncol(df.clean)
 which.cols.need.to.go = sapply(df.validation.clean, function(x) sum(is.na(x)) > 0)
 df.validation.clean = df.validation.clean[!which.cols.need.to.go]
-#ncol(df.validation.clean)
+ncol(df.clean)
 ```
 
-- The first 7 predictors (IDs, dates) have nothing to do with the wearable accelerometers, so remove them
+- The first 7 predictors (IDs, dates) have nothing to do with the wearable accelerometers, so remove them:
 
 ```{r}
+names(df)[1:7]
 df.clean = df.clean[-(1:7)]
-#ncol(df.clean)
 ```
 
-- We now have 53 predictors
+- We now have 53 columns (52 predictors and the `classe` response).
 
 # Classification Models
 
-Reference: [caret package documentation](http://topepo.github.io/caret)
+We will use the `caret` package, providing more than 150 models with unified a interface.
 
-We will use the caret package, providing more than 150 models with unified a interface.
+- Reference: [caret package documentation](http://topepo.github.io/caret)
 
 We need to choose a model technique.
 We have many predictors (p=53) but we have enough data (n) not to worry about using special methods for n < p.
-We first chose a random forest (RF) model because RF is considered to be one of the very best classification techniques.
+We first choose a random forest (RF) model because RF is considered to be one of the very best classification techniques.
+The technique is not very good in terms of interpretability but we are looking for accuracy in this exercise, not interpretability.
 The model will be trained and tested on the split data (70% training, 30% test).
 Then at least one more model will be trained and compared to the RF.
 
-## Useful functions
+## Useful function
 
 ```{r}
+# calculate the accuracy of a classification model compared to the real data
 calc.accuracy = function(model, testing) {
     pred = predict(model, testing)
     cm = confusionMatrix(pred, testing$classe)
@@ -124,7 +129,7 @@ calc.accuracy = function(model, testing) {
 
 ## Prepare the training and testing data
 
-- 70% training, 30% testing
+- The data are split as follows: 70% training, 30% testing.
 
 ```{r cache=TRUE}
 set.seed(1)
@@ -139,18 +144,19 @@ dim(testing)
 ## Train and test a random forest
 
 We have made the following choices:
-- Use the 'rf' method from the caret package to train a random forest;
-- Accept the default of 500 trees to be grown; the randomForest (used by caret) documentation states: 
+
+- Use the `rf` method from the `caret` package to train a random forest.
+- Accept the default of 500 trees to be grown; the `randomForest` (used by `caret`) documentation states: 
 "This should not be set to too small a number, to ensure that every input row gets predicted at least a few times."
-- The tuning parameter mtry 
-(Number of predictors randomly sampled as candidates at each split in the tree) 
+- The tuning parameter `mtry` 
+(Number of predictors randomly chosen at each split in the tree) 
 will automatically be optimized by the training algorithm during cross-validation.
 - In order to keep the algorithm as fast as possible (there are many predictors), we choose:
-    + a faster cross-validation method: out-of-bag (oob);
-    + a value of 10 for nodesize, so that tree nodes will not contain less than 10 samples,
+    + a faster cross-validation method: out-of-bag (`oob`);
+    + a value of 10 for `nodesize`, so that tree nodes will not contain less than 10 samples,
     making the tree smaller.
-    + predictors that have near-zero-variance will be removed by pre-processing
-- These decisions can be reviewed if the model accuracy is low.
+    + predictors that have near-zero-variance will be removed by pre-processing (`preProcess=c('nzv')`)
+- These decisions can be reviewed later if the model accuracy is low.
 
 ```{r echo=FALSE}
 # For speed:
@@ -186,10 +192,10 @@ tst.acc = calc.accuracy(fit.rf, testing)
 cat('Testing accuracy: ', tst.acc, '\n')
 ```
 
-- The above information shows:
-    + The best value of mtry found was 27 (see ouput of fit.rf and the first plot)
-    + The most important predictors of the output class (roll_belt, pitch_forearm, ...)
-    + The training accuracy is `r tr.acc` and the testing accuracy is `r tst.acc`
+- The above information shows that:
+    + The best value of mtry found was 27 (see ouput of fit.rf and the first plot);
+    + The most important predictors of the output class (`roll_belt`, `pitch_forearm`, ...);
+    + The training accuracy is `r tr.acc` and the testing accuracy is `r tst.acc`.
 
 ## Model with Principal Component Analysis before Random Forest
 
@@ -213,11 +219,11 @@ tst.acc.pca = calc.accuracy(fit.pca.rf, testing)
 cat('Testing accuracy: ', tst.acc.pca, '\n')
 ```
 
-- The accuracy (`r tst.acc.pca`) is unfortunately worse and we keep the initial random forest model.
+- The expected accuracy (`r tst.acc.pca`) is unfortunately worse and we keep the initial random forest model.
 
 # Validation
 
-- We now calculate the 'classe' response for the 20 validation samples.
+- We now calculate the `classe` response for the 20 validation samples.
 
 ```{r}
 pred.validation = predict(fit.rf, newdata=df.validation.clean)
@@ -232,4 +238,6 @@ pml_write_files = function(x, dir){
 pml_write_files(pred.validation, 'predictions')
 ```
 
-- The final predictions for the 20 validation samples are: `r pred.validation`.
+The final predictions for the 20 validation samples are: `r pred.validation`.
+These values were submitted for automatic correction and are all correct.
+
